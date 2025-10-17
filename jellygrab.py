@@ -324,10 +324,10 @@ class JellyGrab:
                     
                     # Atualiza UI
                     self.root.after(0, lambda: self.status_label.config(text=f"✅ Conectado como {username}"))
-                    self.root.after(0, lambda: self.login_btn.config(state="normal")
-                    self.root.after(0, lambda: self.download_btn.config(state="normal")
-                    self.root.after(0, lambda: self.download_season_btn.config(state="normal")
-                    self.root.after(0, lambda: self.manager_btn.config(state="normal")
+                    self.root.after(0, lambda: self.login_btn.config(state="normal"))
+                    self.root.after(0, lambda: self.download_btn.config(state="normal"))
+                    self.root.after(0, lambda: self.download_season_btn.config(state="normal"))
+                    self.root.after(0, lambda: self.manager_btn.config(state="normal"))
                     self.root.after(0, self.load_series)
                     
                     self.root.after(0, lambda: messagebox.showinfo("Sucesso", f"Login realizado com sucesso!\nBem-vindo, {username}! 🎉"))
@@ -335,13 +335,13 @@ class JellyGrab:
                 else:
                     error_msg = response.json().get("Message", "Credenciais inválidas")
                     self.root.after(0, lambda: messagebox.showerror("Erro de Login", error_msg))
-                    self.root.after(0, lambda: self.status_label.config(text="❌ Falha no login")
-                    self.root.after(0, lambda: self.login_btn.config(state="normal")
+                    self.root.after(0, lambda: self.status_label.config(text="❌ Falha no login"))
+                    self.root.after(0, lambda: self.login_btn.config(state="normal"))
                     
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("Erro", f"Erro ao conectar: {str(e)}"))
-                self.root.after(0, lambda: self.status_label.config(text="❌ Erro na conexão")
-                self.root.after(0, lambda: self.login_btn.config(state="normal")
+                self.root.after(0, lambda: self.status_label.config(text="❌ Erro na conexão"))
+                self.root.after(0, lambda: self.login_btn.config(state="normal"))
         
         threading.Thread(target=do_login, daemon=True).start()
     
@@ -384,14 +384,14 @@ class JellyGrab:
                     self.root.after(0, lambda: self.status_label.config(text=f"✅ {len(self.series_data)} séries carregadas"))
                 else:
                     self.root.after(0, lambda: messagebox.showerror("Erro", f"Erro ao carregar séries: {response.status_code}"))
-                    self.root.after(0, lambda: self.status_label.config(text="❌ Erro ao carregar")
+                    self.root.after(0, lambda: self.status_label.config(text="❌ Erro ao carregar"))
                 
                 self.root.after(0, self.progress.stop)
-                self.root.after(0, lambda: self.progress.config(mode="determinate")
+                self.root.after(0, lambda: self.progress.config(mode="determinate"))
                 
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("Erro", f"Erro: {str(e)}"))
-                self.root.after(0, lambda: self.status_label.config(text="❌ Erro")
+                self.root.after(0, lambda: self.status_label.config(text="❌ Erro"))
                 self.root.after(0, self.progress.stop)
         
         threading.Thread(target=fetch_series, daemon=True).start()
@@ -514,7 +514,7 @@ class JellyGrab:
                     self.root.after(0, lambda: messagebox.showerror("Erro", f"Erro ao carregar episódios: {response.status_code}"))
                 
                 self.root.after(0, self.progress.stop)
-                self.root.after(0, lambda: self.progress.config(mode="determinate")
+                self.root.after(0, lambda: self.progress.config(mode="determinate"))
                 
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("Erro", f"Erro: {str(e)}"))
