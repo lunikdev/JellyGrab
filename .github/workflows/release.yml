@@ -26,11 +26,11 @@ jobs:
           pip install pyinstaller
 
       - name: Build executable
-        run: pyinstaller --onefile --windowed --icon=icon128.ico --name JellyfinDownloader JellyfinDownloader.py
+        run: pyinstaller --onefile --windowed --icon=icon128.ico --name JellyGrab jellygrab.py
 
       - name: Create Release and Upload Artifact
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/JellyfinDownloader.exe
+          files: dist/JellyGrab.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
