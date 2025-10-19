@@ -35,7 +35,7 @@ class JellyGrabApp:
         self.max_concurrent_downloads = int(self.config.get("max_concurrent_downloads", 2))
         self.chunk_size_mb = float(self.config.get("chunk_size_mb", 1.0))
 
-        self.client = JellyfinClient(self.config.get("server_url", ""))
+        self.client = JellyfinClient(self.config_manager.get_sensitive("server_url", "") or "")
 
         self.series_data = []
         self.download_ui: Dict[str, Dict[str, object]] = defaultdict(dict)
@@ -70,18 +70,18 @@ class JellyGrabApp:
         ttk.Label(login_frame, text="URL do Servidor:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.url_entry = ttk.Entry(login_frame, width=50)
         self.url_entry.grid(row=0, column=1, padx=5, pady=5, columnspan=2)
-        self.url_entry.insert(0, self.config.get("server_url", ""))
+        self.url_entry.insert(0, self.config_manager.get_sensitive("server_url", "") or "")
 
         ttk.Label(login_frame, text="Usuário:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
         self.username_entry = ttk.Entry(login_frame, width=50)
         self.username_entry.grid(row=1, column=1, padx=5, pady=5, columnspan=2)
-        self.username_entry.insert(0, self.config.get("username", ""))
+        self.username_entry.insert(0, self.config_manager.get_sensitive("username", "") or "")
 
         ttk.Label(login_frame, text="Senha:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
         self.password_entry = ttk.Entry(login_frame, width=50, show="●")
         self.password_entry.grid(row=2, column=1, padx=5, pady=5, columnspan=2)
         if self.config.get("remember_login"):
-            self.password_entry.insert(0, self.config.get("password", ""))
+            self.password_entry.insert(0, self.config_manager.get_sensitive("password", "") or "")
 
         self.remember_var = tk.BooleanVar(value=self.config.get("remember_login", False))
         ttk.Checkbutton(login_frame, text="Lembrar login", variable=self.remember_var).grid(
@@ -208,7 +208,7 @@ class JellyGrabApp:
 
     # ------------------------------------------------------------------
     def _attempt_auto_login(self) -> None:
-        if self.config.get("remember_login") and self.config.get("username"):
+        if self.config.get("remember_login") and self.config_manager.get_sensitive("username"):
             self.root.after(500, self.login)
 
     # ------------------------------------------------------------------
@@ -287,18 +287,14 @@ class JellyGrabApp:
                 self.download_btn.config(state="normal")
                 self.download_season_btn.config(state="normal")
                 self.manager_btn.config(state="normal")
-                self.config_manager.update(
-                    {
-                        "server_url": server_url,
-                        "username": username,
-                        "remember_login": self.remember_var.get(),
-                    }
-                )
-                if self.remember_var.get():
-                    self.config_manager.set("password", password)
+                remember_login = self.remember_var.get()
+                self.config_manager.update({"remember_login": remember_login})
+                self.config_manager.set_sensitive("server_url", server_url)
+                self.config_manager.set_sensitive("username", username)
+                if remember_login and password:
+                    self.config_manager.set_sensitive("password", password)
                 else:
-                    self.config_manager.data.pop("password", None)
-                    self.config_manager.save()
+                    self.config_manager.clear_sensitive("password")
                 messagebox.showinfo("Sucesso", f"Login realizado com sucesso!\nBem-vindo, {username}! 🎉")
                 self.load_libraries()
 

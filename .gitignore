@@ -29,6 +29,12 @@ MANIFEST
 
 # PyInstaller
 *.spec
+!JellyGrab-2.0.2.spec
+
+# Release artifacts
+releases/*.zip
+releases/*.7z
+releases/*.exe
 
 # Installer logs
 pip-log.txt
