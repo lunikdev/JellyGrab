@@ -78,7 +78,15 @@ class JellyfinClient:
         }
 
     # High level API -----------------------------------------------------
-    def list_series(self) -> Dict[str, Any]:
+    def list_views(self) -> Dict[str, Any]:
+        self._require_auth()
+        url = f"{self.server_url}/Users/{self.user_id}/Views"
+        params = {"IncludeHidden": "false"}
+        response = self.session.get(url, headers=self.request_headers(), params=params, timeout=15)
+        response.raise_for_status()
+        return response.json()
+
+    def list_series(self, parent_id: str | None = None) -> Dict[str, Any]:
         self._require_auth()
         url = f"{self.server_url}/Users/{self.user_id}/Items"
         params = {
@@ -88,6 +96,8 @@ class JellyfinClient:
             "SortBy": "SortName",
             "SortOrder": "Ascending",
         }
+        if parent_id:
+            params["ParentId"] = parent_id
         response = self.session.get(url, headers=self.request_headers(), params=params, timeout=20)
         response.raise_for_status()
         return response.json()

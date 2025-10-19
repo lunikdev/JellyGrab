@@ -148,6 +148,12 @@ class DownloadController:
     # ------------------------------------------------------------------
     def cancel(self, episode_id: str) -> None:
         self.cancelled.add(episode_id)
+        with self._lock:
+            item = self.items.get(episode_id)
+        if item and item.start_time is None:
+            item.status = "🚫 Cancelado"
+            self._emit_status(item, item.status)
+            self._finalize_item(item)
 
     # ------------------------------------------------------------------
     def _worker(self) -> None:
@@ -155,6 +161,8 @@ class DownloadController:
             item = self.queue.get()
             if item.episode_id in self.cancelled:
                 self.cancelled.remove(item.episode_id)
+                if item.start_time is None:
+                    self._finalize_item(item)
                 self.queue.task_done()
                 continue
 
@@ -211,11 +219,13 @@ class DownloadController:
         except Exception as exc:  # noqa: BLE001
             if isinstance(exc, RuntimeError) and "cancelado" in str(exc).lower():
                 item.status = "🚫 Cancelado"
+                self._emit_status(item, item.status)
+                self._finalize_item(item, delete_partial=True)
             else:
                 item.status = "❌ Erro"
-            self._emit_status(item, item.status)
-            if self.on_error and item.status != "🚫 Cancelado":
-                self.on_error(item, exc)
+                self._emit_status(item, item.status)
+                if self.on_error and item.status != "🚫 Cancelado":
+                    self.on_error(item, exc)
         else:
             if item.show_success:
                 self._emit_status(item, "✅ Concluído")
@@ -271,6 +281,22 @@ class DownloadController:
                 worker = threading.Thread(target=self._worker, daemon=True)
                 self._workers.append(worker)
                 worker.start()
+
+    # ------------------------------------------------------------------
+    def _finalize_item(self, item: DownloadItem, delete_partial: bool = False) -> None:
+        should_remove = delete_partial or item.status == "🚫 Cancelado"
+        if not should_remove:
+            return
+
+        with self._lock:
+            self.items.pop(item.episode_id, None)
+        if delete_partial:
+            try:
+                if item.filepath.exists():
+                    item.filepath.unlink()
+            except Exception:
+                pass
+        self._emit_queue_update()
 
     # ------------------------------------------------------------------
     def set_max_concurrent(self, max_concurrent: int) -> None:

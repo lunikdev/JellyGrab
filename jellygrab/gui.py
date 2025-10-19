@@ -42,6 +42,8 @@ class JellyGrabApp:
         self.download_rows: Dict[str, ttk.Frame] = {}
         self.manager_window: tk.Toplevel | None = None
         self.settings_window: tk.Toplevel | None = None
+        self.library_map: Dict[str, str] = {}
+        self.selected_library_id: str = str(self.config.get("selected_library_id", ""))
 
         self.download_controller = DownloadController(
             self.client,
@@ -112,6 +114,17 @@ class JellyGrabApp:
         self.search_entry.bind("<KeyRelease>", self.filter_series)
 
         ttk.Button(search_frame, text="🔄 Atualizar", command=self.load_series).pack(side="left", padx=5)
+
+        ttk.Label(search_frame, text="📚 Mídia:").pack(side="left", padx=5)
+        self.library_var = tk.StringVar(value="Selecione uma categoria")
+        self.library_combo = ttk.Combobox(
+            search_frame,
+            textvariable=self.library_var,
+            state="disabled",
+            width=30,
+        )
+        self.library_combo.pack(side="left", padx=5)
+        self.library_combo.bind("<<ComboboxSelected>>", self.on_library_change)
 
         tree_frame = ttk.Frame(series_frame)
         tree_frame.pack(fill="both", expand=True)
@@ -287,7 +300,7 @@ class JellyGrabApp:
                     self.config_manager.data.pop("password", None)
                     self.config_manager.save()
                 messagebox.showinfo("Sucesso", f"Login realizado com sucesso!\nBem-vindo, {username}! 🎉")
-                self.load_series()
+                self.load_libraries()
 
             self._async(on_success)
 
@@ -393,9 +406,83 @@ class JellyGrabApp:
         self.close_settings()
 
     # ------------------------------------------------------------------
+    def clear_series_tree(self) -> None:
+        for item in self.series_tree.get_children():
+            self.series_tree.delete(item)
+        self.series_data = []
+
+    # ------------------------------------------------------------------
+    def load_libraries(self) -> None:
+        if not self.client.access_token:
+            return
+
+        self.status_label.config(text="📡 Carregando bibliotecas...")
+        self.library_combo.config(state="disabled")
+
+        def fetch_libraries() -> None:
+            try:
+                data = self.client.list_views()
+            except Exception as exc:  # noqa: BLE001
+                self._async(lambda: messagebox.showerror("Erro", f"Erro ao carregar bibliotecas: {exc}"))
+                self._async(lambda: self.status_label.config(text="❌ Erro ao carregar bibliotecas"))
+                self._async(lambda: self.library_combo.config(state="readonly" if self.library_map else "disabled"))
+            else:
+                items = data.get("Items", [])
+                mapping = {view.get("Name", "Sem nome"): view.get("Id", "") for view in items if view.get("Id")}
+                self._async(lambda: self._populate_libraries(mapping))
+
+        threading.Thread(target=fetch_libraries, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    def _populate_libraries(self, mapping: Dict[str, str]) -> None:
+        self.library_map = mapping
+        values = list(mapping.keys())
+
+        if not values:
+            self.library_combo.set("Nenhuma biblioteca disponível")
+            self.library_combo.config(state="disabled")
+            self.clear_series_tree()
+            return
+
+        self.library_combo.config(state="readonly")
+        self.library_combo["values"] = values
+
+        preferred_id = self.selected_library_id or str(self.config.get("selected_library_id", ""))
+        selected_name = next((name for name, ident in mapping.items() if ident == preferred_id), values[0])
+        self.library_combo.set(selected_name)
+        self.selected_library_id = mapping.get(selected_name, "")
+
+        if self.selected_library_id:
+            self.config_manager.set("selected_library_id", self.selected_library_id)
+            self.load_series()
+
+    # ------------------------------------------------------------------
+    def on_library_change(self, event=None) -> None:  # noqa: ANN001
+        selected_name = self.library_var.get()
+        selected_id = self.library_map.get(selected_name, "")
+
+        if selected_id == self.selected_library_id:
+            return
+
+        self.selected_library_id = selected_id
+
+        if not selected_id:
+            self.clear_series_tree()
+            self.status_label.config(text="🔔 Selecione uma biblioteca válida")
+            return
+
+        self.config_manager.set("selected_library_id", selected_id)
+        self.load_series()
+
+    # ------------------------------------------------------------------
     def load_series(self) -> None:
         if not self.client.access_token:
             messagebox.showwarning("Aviso", "Faça login primeiro!")
+            return
+
+        if not self.selected_library_id:
+            self.status_label.config(text="🔔 Selecione uma biblioteca para carregar")
+            self.clear_series_tree()
             return
 
         self.status_label.config(text="📡 Carregando séries...")
@@ -404,10 +491,11 @@ class JellyGrabApp:
 
         def fetch_series() -> None:
             try:
-                data = self.client.list_series()
+                data = self.client.list_series(self.selected_library_id)
             except Exception as exc:  # noqa: BLE001
                 self._async(lambda: messagebox.showerror("Erro", f"Erro: {exc}"))
                 self._async(lambda: self.status_label.config(text="❌ Erro ao carregar"))
+                self._async(self.clear_series_tree)
             else:
                 self.series_data = data.get("Items", [])
                 self._async(self.update_series_tree)
@@ -619,6 +707,13 @@ class JellyGrabApp:
         return self.download_ui[item.episode_id]
 
     # ------------------------------------------------------------------
+    def _remove_download_entry(self, episode_id: str) -> None:
+        frame = self.download_rows.pop(episode_id, None)
+        if frame and frame.winfo_exists():
+            frame.destroy()
+        self.download_ui.pop(episode_id, None)
+
+    # ------------------------------------------------------------------
     def _queue_update_async(self) -> None:
         self._async(self.update_queue_status)
 
@@ -648,6 +743,8 @@ class JellyGrabApp:
             if status == "✅ Concluído":
                 state["downloaded"] = item.total_size
                 state["total"] = item.total_size
+            if status == "🚫 Cancelado":
+                self._remove_download_entry(item.episode_id)
 
     # ------------------------------------------------------------------
     def _progress_update_async(self, item: DownloadItem, payload) -> None:  # noqa: ANN001
@@ -811,6 +908,17 @@ class JellyGrabApp:
             self.total_percent_var.set("0%")
 
         self.total_speed_var.set(f"{total_speed:.2f} MB/s")
+
+        for episode_id in list(self.download_rows.keys()):
+            if episode_id not in self.download_controller.items:
+                frame = self.download_rows.pop(episode_id)
+                if frame.winfo_exists():
+                    frame.destroy()
+
+        for episode_id in list(self.download_ui.keys()):
+            if episode_id not in self.download_controller.items:
+                self.download_ui.pop(episode_id, None)
+
         self.manager_window.after(1000, self.update_manager)
 
     # ------------------------------------------------------------------
