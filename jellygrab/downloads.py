@@ -51,27 +51,35 @@ class DownloadController:
         self,
         client: JellyfinClient,
         max_concurrent: int = 2,
+        chunk_size_mb: float = 1.0,
         on_queue_update: QueueCallback | None = None,
         on_status: StatusCallback | None = None,
         on_progress: ProgressCallback | None = None,
         on_error: ErrorCallback | None = None,
     ) -> None:
         self.client = client
-        self.max_concurrent = max_concurrent
+        self.max_concurrent = max(1, max_concurrent)
         self.on_queue_update = on_queue_update
         self.on_status = on_status
         self.on_progress = on_progress
         self.on_error = on_error
+        self.chunk_size = self._sanitize_chunk_size(chunk_size_mb)
 
         self.queue: "queue.Queue[DownloadItem]" = queue.Queue()
         self.items: Dict[str, DownloadItem] = {}
         self.current_downloads = 0
         self.cancelled: set[str] = set()
         self._lock = threading.Lock()
+        self._worker_lock = threading.Lock()
+        self._workers: list[threading.Thread] = []
 
-        for _ in range(self.max_concurrent):
-            worker = threading.Thread(target=self._worker, daemon=True)
-            worker.start()
+        self._ensure_workers(self.max_concurrent)
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _sanitize_chunk_size(chunk_size_mb: float) -> int:
+        chunk_mb = max(0.25, float(chunk_size_mb))
+        return int(chunk_mb * 1024 * 1024)
 
     # ------------------------------------------------------------------
     def set_callbacks(
@@ -150,8 +158,7 @@ class DownloadController:
                 self.queue.task_done()
                 continue
 
-            with self._lock:
-                self.current_downloads += 1
+            self._acquire_slot()
             self._emit_queue_update()
             self._download_item(item)
             with self._lock:
@@ -173,7 +180,7 @@ class DownloadController:
             if total_size:
                 item.total_size = total_size
 
-            chunk_size = 1024 * 1024
+            chunk_size = self.chunk_size
             downloaded = 0
 
             with item.filepath.open("wb") as handle:
@@ -243,6 +250,37 @@ class DownloadController:
     def _emit_queue_update(self) -> None:
         if self.on_queue_update:
             self.on_queue_update()
+
+    # ------------------------------------------------------------------
+    def _acquire_slot(self) -> None:
+        acquired = False
+        while not acquired:
+            with self._lock:
+                if self.current_downloads < self.max_concurrent:
+                    self.current_downloads += 1
+                    acquired = True
+                    break
+            time.sleep(0.1)
+
+    # ------------------------------------------------------------------
+    def _ensure_workers(self, desired: int) -> None:
+        desired = max(1, desired)
+        with self._worker_lock:
+            missing = desired - len(self._workers)
+            for _ in range(max(0, missing)):
+                worker = threading.Thread(target=self._worker, daemon=True)
+                self._workers.append(worker)
+                worker.start()
+
+    # ------------------------------------------------------------------
+    def set_max_concurrent(self, max_concurrent: int) -> None:
+        self.max_concurrent = max(1, int(max_concurrent))
+        self._ensure_workers(self.max_concurrent)
+        self._emit_queue_update()
+
+    # ------------------------------------------------------------------
+    def set_chunk_size_mb(self, chunk_size_mb: float) -> None:
+        self.chunk_size = self._sanitize_chunk_size(chunk_size_mb)
 
 
 __all__ = ["DownloadController", "DownloadItem"]

@@ -21,7 +21,7 @@ class JellyGrabApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("JellyGrab 🎬")
-        self.root.geometry("950x750")
+        self.root.geometry("950x900")
         self.root.resizable(True, True)
 
         self.config_manager = ConfigManager()
@@ -32,16 +32,21 @@ class JellyGrabApp:
         )
         ConfigManager.ensure_download_directory(self.download_path)
 
+        self.max_concurrent_downloads = int(self.config.get("max_concurrent_downloads", 2))
+        self.chunk_size_mb = float(self.config.get("chunk_size_mb", 1.0))
+
         self.client = JellyfinClient(self.config.get("server_url", ""))
 
         self.series_data = []
         self.download_ui: Dict[str, Dict[str, object]] = defaultdict(dict)
         self.download_rows: Dict[str, ttk.Frame] = {}
         self.manager_window: tk.Toplevel | None = None
+        self.settings_window: tk.Toplevel | None = None
 
         self.download_controller = DownloadController(
             self.client,
-            max_concurrent=2,
+            max_concurrent=self.max_concurrent_downloads,
+            chunk_size_mb=self.chunk_size_mb,
             on_queue_update=self._queue_update_async,
             on_status=self._status_update_async,
             on_progress=self._progress_update_async,
@@ -164,6 +169,13 @@ class JellyGrabApp:
         )
         self.manager_btn.pack(side="left", padx=5)
 
+        self.settings_btn = ttk.Button(
+            button_frame,
+            text="⚙️ Configurações",
+            command=self.open_settings,
+        )
+        self.settings_btn.pack(side="left", padx=5)
+
         status_frame = ttk.Frame(self.root)
         status_frame.pack(fill="x", padx=10, pady=5)
 
@@ -284,6 +296,101 @@ class JellyGrabApp:
     # ------------------------------------------------------------------
     def _async(self, callback) -> None:
         self.root.after(0, callback)
+
+    # ------------------------------------------------------------------
+    def open_settings(self) -> None:
+        if self.settings_window and self.settings_window.winfo_exists():
+            self.settings_window.focus_set()
+            return
+
+        self.settings_window = tk.Toplevel(self.root)
+        self.settings_window.title("Configurações")
+        self.settings_window.geometry("400x220")
+        self.settings_window.resizable(False, False)
+        self.settings_window.grab_set()
+        self.settings_window.protocol("WM_DELETE_WINDOW", self.close_settings)
+
+        container = ttk.Frame(self.settings_window, padding=15)
+        container.pack(fill="both", expand=True)
+
+        ttk.Label(container, text="Downloads simultâneos:").grid(row=0, column=0, sticky="w", pady=(0, 10))
+        self.concurrent_var = tk.IntVar(value=self.max_concurrent_downloads)
+        concurrent_spin = ttk.Spinbox(
+            container,
+            from_=1,
+            to=10,
+            textvariable=self.concurrent_var,
+            width=5,
+        )
+        concurrent_spin.grid(row=0, column=1, sticky="e", pady=(0, 10))
+
+        ttk.Label(container, text="Tamanho do bloco (MB):").grid(row=1, column=0, sticky="w", pady=(0, 10))
+        self.chunk_size_var = tk.DoubleVar(value=self.chunk_size_mb)
+        chunk_spin = ttk.Spinbox(
+            container,
+            from_=0.25,
+            to=10,
+            increment=0.25,
+            textvariable=self.chunk_size_var,
+            width=5,
+            format="%.2f",
+        )
+        chunk_spin.grid(row=1, column=1, sticky="e", pady=(0, 10))
+
+        helper = ttk.Label(
+            container,
+            text="Ajuste o tamanho do bloco para melhorar a velocidade. Valores maiores utilizam mais memória.",
+            wraplength=320,
+            foreground="#555555",
+            justify="left",
+        )
+        helper.grid(row=2, column=0, columnspan=2, sticky="w", pady=(0, 15))
+
+        button_frame = ttk.Frame(container)
+        button_frame.grid(row=3, column=0, columnspan=2, sticky="e")
+
+        ttk.Button(button_frame, text="Cancelar", command=self.close_settings).pack(side="right", padx=5)
+        ttk.Button(button_frame, text="Salvar", command=self.save_settings).pack(side="right")
+
+    # ------------------------------------------------------------------
+    def close_settings(self) -> None:
+        if self.settings_window and self.settings_window.winfo_exists():
+            self.settings_window.grab_release()
+            self.settings_window.destroy()
+        self.settings_window = None
+
+    # ------------------------------------------------------------------
+    def save_settings(self) -> None:
+        try:
+            concurrent = int(self.concurrent_var.get())
+        except (tk.TclError, ValueError):
+            messagebox.showerror("Erro", "Valor inválido para downloads simultâneos")
+            return
+
+        try:
+            chunk_size = float(self.chunk_size_var.get())
+        except (tk.TclError, ValueError):
+            messagebox.showerror("Erro", "Valor inválido para o tamanho do bloco")
+            return
+
+        concurrent = max(1, concurrent)
+        chunk_size = max(0.25, chunk_size)
+
+        self.max_concurrent_downloads = concurrent
+        self.chunk_size_mb = chunk_size
+
+        self.download_controller.set_max_concurrent(concurrent)
+        self.download_controller.set_chunk_size_mb(chunk_size)
+
+        self.config_manager.update(
+            {
+                "max_concurrent_downloads": self.max_concurrent_downloads,
+                "chunk_size_mb": self.chunk_size_mb,
+            }
+        )
+
+        self.status_label.config(text="⚙️ Configurações atualizadas")
+        self.close_settings()
 
     # ------------------------------------------------------------------
     def load_series(self) -> None:
